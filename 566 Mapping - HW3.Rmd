@@ -1,0 +1,136 @@
+---
+title: "566 Mapping - Homework 3"
+author: "Tanner Brooks"
+output: html_document
+knit: (function(input_file, encoding) {
+    out_dir <- 'docs';
+    rmarkdown::render(input_file,
+  encoding=encoding,
+  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+---
+
+
+
+```{r}
+library(rworldmap) 
+library(sf)
+library(rgeos)
+library(ggplot2)
+library(viridis)
+library(rgdal)
+library(leaflet)
+library(sjmisc)
+
+
+# Getting data, Joining, & Manipulating for Map
+life <- read.csv("/Users/Tanner/Desktop/CSU/566 - Data Visualization/hw 3 - map/life_expectancy_years.csv")
+life <- cbind(life["country"], life["X2021"])
+names(life) <- c("Country", "Expectancy")
+
+
+
+pop <- read.csv("/Users/Tanner/Desktop/CSU/566 - Data Visualization/hw 3 - map/population_total.csv")
+pop <- cbind(pop["country"], pop["X2021"])
+names(pop) <- c("Country", "Population")
+
+
+
+pop$ind <- ifelse(grepl("k", pop$Population), "k", 
+                  ifelse(grepl("M", pop$Population), "M", 
+                  ifelse(grepl("B", pop$Population), "B", 
+                  pop$Population)))
+
+
+pop$PopAbrev <- ifelse(pop$ind == "k", pop$Population,
+                         ifelse(pop$ind == "M", pop$Population,
+                         ifelse(pop$ind == "B", pop$Population,
+                         pop$ind)))
+
+
+pop$Population <- gsub("k", "", pop$Population)
+pop$Population <- gsub("M", "", pop$Population)
+pop$Population <- as.numeric(gsub("B", "", pop$Population))
+pop$Population <- as.numeric(ifelse(pop$ind == "k", pop$Population * 100000,
+                         ifelse(pop$ind == "M", pop$Population * 1000000,
+                         ifelse(pop$ind == "B", pop$Population * 1000000000,
+                         pop$ind))))
+pop = subset(pop, select = -c(ind) )
+combined <- merge(life, pop, by = "Country")
+
+n <- joinCountryData2Map(combined, joinCode="NAME", nameJoinColumn="Country")
+
+
+
+
+# rm(test)
+test <- merge(x = combined, y = data.frame(Country = n$NAME, Longitude = n$LON), by = "Country")
+test <- merge(x = test, y = data.frame(Country = n$NAME, Latitude = n$LAT), by = "Country")
+
+
+
+
+
+# define color palette
+pal <- colorNumeric(
+  palette = c('#C03A83FF', '#73D055FF'),
+  domain = test$Expectancy,
+  na.color = NA)
+
+
+# define hover tooltip
+labs <- lapply(seq(nrow(test)), 
+               function(i) {
+  paste0( "", "World Average Life Expectancy: ",as.character(round(mean(test[, "Expectancy"], na.rm = T),1)), '<br>',
+          ifelse(is.na(as.character(test[i, "Country"])),"",paste0(as.character(test[i, "Country"]), "'s Life Expectancy: ")),
+          as.character(test[i, "Expectancy"]), '<br>',
+          "Population: ", as.character(test[i, "PopAbrev"]), '<br>',
+          '' ) 
+})
+
+
+m <- leaflet(test) %>%
+  addCircles(
+    lng = ~Longitude, 
+    lat = ~Latitude, 
+    weight = 2,
+    radius = ~sqrt(Population) * 40,
+    color = ~pal(Expectancy),
+    label = ~lapply(labs, htmltools::HTML)
+    
+  ) %>%
+  addTiles() %>%
+  addLegend("bottomright", pal = pal, values = ~Expectancy,
+    title = "Life Expectancy & Population (2021)",
+    opacity = 1) %>% 
+  setView(lng=3.926112,lat=20.331750, zoom=2)
+
+m
+```
+
+
+
+
+
+
+
+
+# About the Plot
+
+## Data Source
+
+This data source can be found on the Gapminder website https://www.gapminder.org/data/. I used two sources from this website; the first one being "Life Expectancy by Country" and the second "Population by Country". The description of the data can be accessed when selecting the source. The description for the Life Expectancy data states: "The average number of years a newborn child would live if current mortality patterns were to stay the same." The description of the Population data states: "Total population". This cannot be directly replicated in above code. However, if one were to download the csv files from the website and redirect the working directory for the files, the above code would execute the graph correctly.
+
+
+## Spatial Units Being Displayed
+
+This map above is displaying Life Expectancy (color of the bubbles) and Population (size of the bubbles) by Country.
+
+
+## Purpose of Map
+
+What I want to communicate in the above map is the life expectancy in 2021 across the globe. I decided to also include the population size of each country to add another dimension to the graph in order to see if population size might give any insight to the life expectancy.
+
+
+## Graph Decisions
+
+The first step in creating this map was to get the data and transform, message, join, and manipulate it in order to be in the correct format to make the plot. I first downloaded the Life Expectancy data, chose only the year 2021 and country, and renamed the variables. I did the same thing to the population dataset, chose the same year, country, and renamed the variables. The population data set were set as character's in the format of thousands, millions, and billions i.e.: (100k, 1.1M, or 1.8B). I had to clean this variable in order to be the actual number so that the map could size the bubbles accordingly. After the data were cleansed, I joined the two data sources so that I had one dataset. Now that I had my cleansed dataset I needed the Latitude and Longitude of the countries in order to be able to display the data on the map. For this step I used the "joinCountryData2map" function to get these coordinates. After getting these coordinates, I again joined these onto our prior dataset. Now that I had all my data correctly formatted with the respective coordinates, in order to start my graph I defined my color palette. I wanted to use a viridis green and a red so that I could display life expectancy on this scale (green being higher life expectancy, red being lower.) The next step was to include a tooltip so that a user could interact with the map. This tooltip includes, the population size (in thousands, millions, and billions), the country, the countries life expectancy, and the world average life expectancy. I decided to include this calculation so that it would be clear for the user to be able to compare any country to the overall global life expectancy. Now came time to build the map. I first added the circles. To get the circles to the right size I had to play around with the "weight" and "radius" functions. The radius function was important because the circles were either too big and overlapping too much or too small where it was very difficult to see. The "weight" function was also important because the circles that did overlap easier to be distinguished. I included the interactive label in the circle function to that a user could more easily interpret the data. I wanted to include a legend with a title so that at the first glance it would be clear what the map was showing. I decided to put it in the bottom right because it would cover less of the countries and was the best position to be "out of the way". I included some opacity to the legend so that it wouldn't be so starkly contrasted to the map and instead be blended in. At first the map seemed to far away and the user would have to zoom in before getting a better picture. Lastly, to make the map more aesthetically pleasing, I wanted to remove the blank space of the map such as removing Antarctica and parts of the northern hemisphere where there are no data. I used the "zoom" function and found latitude and longitude coordinates using an online application "https://www.latlong.net/" in order to maximize the view of my map to contain all the data at the first look without being too far away or too close.
